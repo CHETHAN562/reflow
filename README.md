@@ -42,7 +42,7 @@ It automatically builds your Next.js app within Docker (no need for a Dockerfile
 1.  **Install Go:** Make sure you have Go installed (version 1.18+ recommended).
 2.  **Clone the repository:**
     ```bash
-    git clone [https://github.com/RevereInc/reflow.git](https://github.com/RevereInc/reflow.git)
+    git clone https://github.com/RevereInc/reflow.git
     cd reflow
     ```
 3.  **Build the binary:**
@@ -54,6 +54,16 @@ It automatically builds your Next.js app within Docker (no need for a Dockerfile
     ```bash
     sudo mv reflow /usr/local/bin/
     ```
+
+### Install Script (Linux)
+
+You can install the latest version of Reflow using the following command. It automatically detects your architecture (amd64/arm64), downloads the correct release binary, and installs it to `/usr/local/bin`.
+
+**Note:** This requires `curl` or `wget`, `tar`, and `sudo` privileges to write to `/usr/local/bin`.
+
+```bash
+curl -sSL https://raw.githubusercontent.com/RevereInc/reflow/main/install.sh | sudo bash
+```
 
 ## Getting Started / Usage
 
@@ -158,7 +168,7 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             cd /path/to/where/t/is || exit 1
-            ./revflow deploy your-project-name ${{ github.sha }}
+            ./reflow deploy your-project-name ${{ github.sha }}
 ```
 
 * You need to add `SSH_HOST`, `SSH_USERNAME`, and `SSH_PRIVATE_KEY` as secrets in your GitHub repository settings.
