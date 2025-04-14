@@ -96,7 +96,12 @@ func fetchLatestRelease(ctx context.Context, repo string) (string, string, error
 	if err != nil {
 		return "", "", fmt.Errorf("failed to fetch latest release from GitHub: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+			util.Log.Warnf("Failed to close response body: %v", err)
+		}
+	}(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
