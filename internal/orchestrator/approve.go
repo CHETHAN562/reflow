@@ -117,7 +117,7 @@ func ApproveProd(ctx context.Context, reflowBasePath, projectName string) (err e
 	}
 
 	util.Log.Debugf("Loading environment variables from file: %s", envFilePath)
-	envVars, err := loadEnvFile(envFilePath)
+	envVars, err := util.LoadEnvFile(envFilePath)
 	if err != nil {
 		return fmt.Errorf("failed to load prod environment variables: %w", err)
 	}

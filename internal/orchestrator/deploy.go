@@ -1,7 +1,6 @@
 package orchestrator
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"os"
@@ -170,7 +169,7 @@ func DeployTest(ctx context.Context, reflowBasePath, projectName, commitIsh stri
 		envFilePath = filepath.Join(repoPath, projCfg.Environments["test"].EnvFile)
 	}
 
-	envVars, err := loadEnvFile(envFilePath)
+	envVars, err := util.LoadEnvFile(envFilePath)
 	if err != nil {
 		return fmt.Errorf("failed to load environment variables: %w", err)
 	}
@@ -296,51 +295,4 @@ func DeployTest(ctx context.Context, reflowBasePath, projectName, commitIsh stri
 	util.Log.Info("-----------------------------------------------------")
 
 	return nil
-}
-
-// loadEnvFile loads environment variables from a specified file.
-func loadEnvFile(filePath string) ([]string, error) {
-	var vars []string
-	if filePath == "" {
-		util.Log.Debug("No env file path specified.")
-		return vars, nil
-	}
-
-	file, err := os.Open(filePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			util.Log.Warnf("Environment file not found at %s, continuing without it.", filePath)
-			return vars, nil
-		}
-		return nil, fmt.Errorf("failed to open env file %s: %w", filePath, err)
-	}
-	defer func(file *os.File) {
-		err := file.Close()
-		if err != nil {
-			util.Log.Errorf("Error closing env file %s: %v", filePath, err)
-		} else {
-			util.Log.Debugf("Closed env file %s successfully.", filePath)
-		}
-	}(file)
-
-	scanner := bufio.NewScanner(file)
-	lineNumber := 0
-	for scanner.Scan() {
-		lineNumber++
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		if !strings.Contains(line, "=") {
-			util.Log.Warnf("Skipping invalid line %d in env file %s: Missing '='", lineNumber, filePath)
-			continue
-		}
-		vars = append(vars, line)
-	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("error reading env file %s: %w", filePath, err)
-	}
-	util.Log.Debugf("Loaded %d variables from %s", len(vars), filePath)
-	return vars, nil
 }
