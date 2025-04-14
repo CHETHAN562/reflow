@@ -1,0 +1,28 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+reflow
+
+# Test binary, build with `go test -c`
+*.test
+
+# Output of the go coverage tool, e.g. cover.out
+*.out
+*.cover
+
+# IDE/Editor directories
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS generated files
+.DS_Store
+Thumbs.db
+*~
+
+# Reflow runtime directory (contains config, state, logs, cloned repos, etc.)
+reflow/
