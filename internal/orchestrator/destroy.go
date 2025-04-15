@@ -3,10 +3,12 @@ package orchestrator
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"reflow/internal/config"
 	"reflow/internal/docker"
+	"reflow/internal/plugin" // Import plugin manager
 	"reflow/internal/util"
 	"strings"
 
@@ -44,28 +46,65 @@ func DestroyReflow(ctx context.Context, reflowBasePath string, force bool) error
 		return fmt.Errorf("cannot proceed with destruction: failed to get Docker client: %w", err)
 	}
 
+	// --- Stop and Remove Plugin Containers & Nginx Configs ---
+	util.Log.Info("Finding and removing plugin resources...")
+	pluginState, stateErr := config.LoadGlobalPluginState(reflowBasePath)
+	if stateErr != nil {
+		util.Log.Errorf("Failed to load plugin state during destroy: %v. Skipping plugin cleanup.", stateErr)
+		finalErr = fmt.Errorf("failed to load plugin state: %w", stateErr)
+	} else {
+		util.Log.Infof("Checking %d installed plugin(s) for cleanup.", len(pluginState.InstalledPlugins))
+		for name, pConf := range pluginState.InstalledPlugins {
+			util.Log.Debugf("Cleaning up plugin: %s", name)
+			if pConf.Type == config.PluginTypeContainer {
+				// Stop Container
+				if pConf.ContainerID != "" {
+					util.Log.Warnf("Stopping plugin container %s (%s)...", name, pConf.ContainerID[:min(12, len(pConf.ContainerID))])
+					_ = docker.StopContainer(ctx, pConf.ContainerID, nil) // Ignore error, try removing anyway
+					// Remove Container
+					util.Log.Warnf("Removing plugin container %s (%s)...", name, pConf.ContainerID[:min(12, len(pConf.ContainerID))])
+					if rmErr := docker.RemoveContainer(ctx, pConf.ContainerID); rmErr != nil && !dockerAPIClient.IsErrNotFound(rmErr) {
+						errMsg := fmt.Sprintf("failed to remove plugin container %s: %v", pConf.ContainerID[:min(12, len(pConf.ContainerID))], rmErr)
+						util.Log.Error(errMsg)
+						if finalErr == nil {
+							finalErr = errors.New(errMsg)
+						}
+					}
+				}
+				// Remove Nginx Config
+				if pConf.NginxConfigOk { // Check if Nginx was likely configured
+					util.Log.Warnf("Removing Nginx config for plugin %s...", name)
+					// Use the remove function which also handles reload implicitly (though reload is less critical during full destroy)
+					if ngxRmErr := plugin.RemovePluginNginx(ctx, reflowBasePath, pConf); ngxRmErr != nil {
+						util.Log.Errorf("Failed to remove Nginx config for plugin %s: %v", name, ngxRmErr)
+						// Don't block destruction for Nginx config file removal failure
+					}
+				}
+			}
+		}
+	}
+
 	// --- Stop and Remove App Containers ---
 	util.Log.Info("Finding and removing all Reflow managed application containers...")
-	appLabels := map[string]string{docker.LabelManaged: "true"}
-	allContainers, err := docker.FindContainersByLabels(ctx, appLabels)
+	appLabels := map[string]string{docker.LabelManaged: "true", "reflow.type": "project"} // Assuming projects have a type label now or just use LabelManaged
+	allAppContainers, err := docker.FindContainersByLabels(ctx, appLabels)                // Adjust label query if needed
 	if err != nil {
-		util.Log.Errorf("Failed to list Reflow containers, attempting to continue: %v", err)
-		finalErr = fmt.Errorf("failed to list reflow containers: %w", err)
+		util.Log.Errorf("Failed to list Reflow application containers, attempting to continue: %v", err)
+		if finalErr == nil {
+			finalErr = fmt.Errorf("failed to list reflow app containers: %w", err)
+		}
 	} else {
-		util.Log.Infof("Found %d potentially managed container(s) to remove.", len(allContainers))
-		for _, c := range allContainers {
-			if c.Names[0] == "/"+config.ReflowNginxContainerName {
-				continue
-			}
+		util.Log.Infof("Found %d managed application container(s) to remove.", len(allAppContainers))
+		for _, c := range allAppContainers {
 			containerName := strings.Join(c.Names, ", ")
 			containerID := c.ID[:12]
-			util.Log.Warnf("Stopping and removing container %s (ID: %s)...", containerName, containerID)
+			util.Log.Warnf("Stopping and removing app container %s (ID: %s)...", containerName, containerID)
 			_ = docker.StopContainer(ctx, c.ID, nil)
 			if rmErr := docker.RemoveContainer(ctx, c.ID); rmErr != nil {
-				errMsg := fmt.Sprintf("failed to remove container %s: %v", containerID, rmErr)
+				errMsg := fmt.Sprintf("failed to remove app container %s: %v", containerID, rmErr)
 				util.Log.Error(errMsg)
 				if finalErr == nil {
-					finalErr = fmt.Errorf(errMsg)
+					finalErr = errors.New(errMsg)
 				}
 			}
 		}

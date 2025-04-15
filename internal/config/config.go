@@ -7,18 +7,36 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
 	"reflow/internal/util"
 )
 
-var loadedGlobalConfig *GlobalConfig
+var (
+	loadedGlobalConfig *GlobalConfig
+	globalConfigMutex  sync.RWMutex
+	loadedPluginState  *GlobalPluginState
+	pluginStateMutex   sync.RWMutex
+)
 
 // LoadGlobalConfig loads the global configuration from the specified base path.
 func LoadGlobalConfig(basePath string) (*GlobalConfig, error) {
+	globalConfigMutex.RLock()
 	if loadedGlobalConfig != nil {
-		return loadedGlobalConfig, nil
+		cfg := *loadedGlobalConfig
+		globalConfigMutex.RUnlock()
+		return &cfg, nil
+	}
+	globalConfigMutex.RUnlock()
+
+	globalConfigMutex.Lock()
+	defer globalConfigMutex.Unlock()
+
+	if loadedGlobalConfig != nil {
+		cfg := *loadedGlobalConfig
+		return &cfg, nil
 	}
 
 	configFilePath := filepath.Join(basePath, GlobalConfigFileName)
@@ -44,7 +62,8 @@ func LoadGlobalConfig(basePath string) (*GlobalConfig, error) {
 
 	loadedGlobalConfig = &config
 	util.Log.Debugf("Loaded global config from %s", configFilePath)
-	return &config, nil
+	cfgCopy := *loadedGlobalConfig
+	return &cfgCopy, nil
 }
 
 // GetProjectBasePath returns the path to a specific project's directory.
@@ -167,6 +186,9 @@ func GetEffectiveDomain(globalCfg *GlobalConfig, projCfg *ProjectConfig, env str
 	}
 
 	if !ok {
+		if projCfg.Environments == nil {
+			return "", fmt.Errorf("environments map is nil in project config for '%s'", projCfg.ProjectName)
+		}
 		return "", fmt.Errorf("environment '%s' not defined in project config for '%s'", env, projCfg.ProjectName)
 	}
 
@@ -192,4 +214,136 @@ func GetEffectiveDomain(globalCfg *GlobalConfig, projCfg *ProjectConfig, env str
 	calculatedDomain := fmt.Sprintf("%s-%s.%s", projCfg.ProjectName, strings.ToLower(env), globalCfg.DefaultDomain)
 	util.Log.Debugf("Using calculated default domain for %s/%s: %s", projCfg.ProjectName, env, calculatedDomain)
 	return calculatedDomain, nil
+}
+
+// GetPluginsBasePath returns the path to the plugins directory.
+func GetPluginsBasePath(reflowBasePath string) string {
+	return filepath.Join(reflowBasePath, PluginsDirName)
+}
+
+// GetPluginInstallPath returns the installation path for a specific plugin.
+func GetPluginInstallPath(reflowBasePath, pluginName string) string {
+	return filepath.Join(GetPluginsBasePath(reflowBasePath), pluginName)
+}
+
+// GetPluginConfigPath returns the path where a plugin's instance config is stored.
+func GetPluginConfigPath(reflowBasePath, pluginName string) string {
+	return filepath.Join(GetPluginInstallPath(reflowBasePath, pluginName), PluginConfigDirName, PluginDefaultConfigName)
+}
+
+// LoadGlobalPluginState loads the global state of all installed plugins.
+func LoadGlobalPluginState(reflowBasePath string) (*GlobalPluginState, error) {
+	pluginStateMutex.RLock()
+	if loadedPluginState != nil {
+		state := *loadedPluginState
+		pluginStateMutex.RUnlock()
+		return &state, nil
+	}
+	pluginStateMutex.RUnlock()
+
+	pluginStateMutex.Lock()
+	defer pluginStateMutex.Unlock()
+	if loadedPluginState != nil {
+		state := *loadedPluginState
+		return &state, nil
+	}
+
+	stateFilePath := filepath.Join(reflowBasePath, PluginStateFileName)
+	data, err := os.ReadFile(stateFilePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			util.Log.Debugf("Global plugin state file not found at %s, returning empty state.", stateFilePath)
+			newState := &GlobalPluginState{InstalledPlugins: make(map[string]*PluginInstanceConfig)}
+			loadedPluginState = newState
+			stateCopy := *loadedPluginState
+			return &stateCopy, nil
+		}
+		return nil, fmt.Errorf("failed to read global plugin state file %s: %w", stateFilePath, err)
+	}
+
+	var state GlobalPluginState
+	if err := json.Unmarshal(data, &state); err != nil {
+		util.Log.Warnf("Failed to unmarshal global plugin state file %s: %v. Returning empty state.", stateFilePath, err)
+		newState := &GlobalPluginState{InstalledPlugins: make(map[string]*PluginInstanceConfig)}
+		loadedPluginState = newState
+		stateCopy := *loadedPluginState
+		return &stateCopy, nil
+	}
+
+	if state.InstalledPlugins == nil {
+		state.InstalledPlugins = make(map[string]*PluginInstanceConfig)
+	}
+
+	loadedPluginState = &state
+	util.Log.Debugf("Loaded global plugin state from %s", stateFilePath)
+	stateCopy := *loadedPluginState
+	return &stateCopy, nil
+}
+
+// SaveGlobalPluginState saves the global state of all installed plugins.
+func SaveGlobalPluginState(reflowBasePath string, state *GlobalPluginState) error {
+	pluginStateMutex.Lock()
+	defer pluginStateMutex.Unlock()
+
+	stateFilePath := filepath.Join(reflowBasePath, PluginStateFileName)
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal global plugin state: %w", err)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(stateFilePath), 0755); err != nil {
+		return fmt.Errorf("failed to create directory %s: %w", filepath.Dir(stateFilePath), err)
+	}
+
+	if err := os.WriteFile(stateFilePath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write global plugin state file %s: %w", stateFilePath, err)
+	}
+
+	loadedPluginState = state
+	util.Log.Debugf("Saved global plugin state to %s", stateFilePath)
+	return nil
+}
+
+// SavePluginInstanceConfig saves the configuration for a single plugin instance.
+func SavePluginInstanceConfig(configPath string, configValues map[string]string) error {
+	data, err := json.MarshalIndent(configValues, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal plugin instance config: %w", err)
+	}
+
+	configDir := filepath.Dir(configPath)
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		return fmt.Errorf("failed to create plugin config directory %s: %w", configDir, err)
+	}
+
+	if err := os.WriteFile(configPath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write plugin instance config file %s: %w", configPath, err)
+	}
+	util.Log.Debugf("Saved plugin instance config to %s", configPath)
+	return nil
+}
+
+// LoadPluginInstanceConfig loads the configuration for a single plugin instance.
+func LoadPluginInstanceConfig(configPath string) (map[string]string, error) {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			util.Log.Debugf("Plugin instance config file not found at %s, returning empty map.", configPath)
+			return make(map[string]string), nil
+		}
+		return nil, fmt.Errorf("failed to read plugin instance config file %s: %w", configPath, err)
+	}
+
+	var configValues map[string]string
+	if err := json.Unmarshal(data, &configValues); err != nil {
+		util.Log.Warnf("Failed to unmarshal plugin instance config file %s: %v. Returning empty map.", configPath, err)
+		return make(map[string]string), nil
+	}
+
+	if configValues == nil {
+		configValues = make(map[string]string)
+	}
+
+	util.Log.Debugf("Loaded plugin instance config from %s", configPath)
+	return configValues, nil
 }

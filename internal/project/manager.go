@@ -2,11 +2,15 @@ package project
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
 	"os"
 	"path/filepath"
 	"reflow/internal/config"
 	"reflow/internal/docker"
+	"reflow/internal/git"
 	"reflow/internal/util"
 )
 
@@ -211,4 +215,133 @@ func populateEnvDetails(ctx context.Context, projCfg *config.ProjectConfig, envS
 		details.ContainerID = container.ID[:12]
 		details.ContainerNames = container.Names
 	}
+}
+
+// CreateProject handles the core logic of creating a new project.
+func CreateProject(reflowBasePath string, args config.CreateProjectArgs) error {
+	if args.ProjectName == "" || args.RepoURL == "" {
+		return errors.New("project name and repository URL are required")
+	}
+
+	util.Log.Infof("Creating new project '%s' from repo '%s'", args.ProjectName, args.RepoURL)
+
+	projectBasePath := config.GetProjectBasePath(reflowBasePath, args.ProjectName)
+	repoDestPath := filepath.Join(projectBasePath, config.RepoDirName)
+
+	// --- 1. Check if Project Already Exists ---
+	if _, err := os.Stat(projectBasePath); err == nil {
+		return fmt.Errorf("project '%s' already exists at %s", args.ProjectName, projectBasePath)
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("failed to check project directory %s: %w", projectBasePath, err)
+	}
+
+	// --- 2. Create Project Directory ---
+	if err := os.MkdirAll(projectBasePath, 0755); err != nil {
+		return fmt.Errorf("failed to create project directory %s: %w", projectBasePath, err)
+	}
+	util.Log.Debugf("Created project directory: %s", projectBasePath)
+
+	var success = false
+	defer func() {
+		if !success {
+			util.Log.Warnf("Cleaning up project directory %s due to creation failure.", projectBasePath)
+			_ = os.RemoveAll(projectBasePath)
+		}
+	}()
+
+	// --- 3. Clone Repository ---
+	if err := git.CloneRepo(args.RepoURL, repoDestPath); err != nil {
+		return fmt.Errorf("failed to clone repository for project '%s': %w", args.ProjectName, err)
+	}
+
+	// --- 4. Create Project Config File ---
+	appPort := args.AppPort
+	if appPort <= 0 {
+		appPort = 3000
+	}
+	nodeVersion := args.NodeVersion
+	if nodeVersion == "" {
+		nodeVersion = "18-alpine"
+	}
+	testEnvFile := args.TestEnvFile
+	if testEnvFile == "" {
+		testEnvFile = ".env.development"
+	}
+	prodEnvFile := args.ProdEnvFile
+	if prodEnvFile == "" {
+		prodEnvFile = ".env.production"
+	}
+
+	projCfg := config.ProjectConfig{
+		ProjectName: args.ProjectName,
+		GithubRepo:  args.RepoURL,
+		AppPort:     appPort,
+		NodeVersion: nodeVersion,
+		Environments: map[string]config.ProjectEnvConfig{
+			"test": {
+				Domain:  args.TestDomain,
+				EnvFile: testEnvFile,
+			},
+			"prod": {
+				Domain:  args.ProdDomain,
+				EnvFile: prodEnvFile,
+			},
+		},
+		TestDomainOverride: args.TestDomain,
+		ProdDomainOverride: args.ProdDomain,
+	}
+
+	if err := config.SaveProjectConfig(reflowBasePath, &projCfg); err != nil {
+		return fmt.Errorf("failed to save project config for '%s': %w", args.ProjectName, err)
+	}
+	configFilePath := filepath.Join(projectBasePath, config.ProjectConfigFileName)
+	util.Log.Infof("Created project config: %s", configFilePath)
+
+	// --- 5. Create Initial State File ---
+	initialState := config.ProjectState{
+		Test: config.EnvironmentState{},
+		Prod: config.EnvironmentState{},
+	}
+	if err := config.SaveProjectState(reflowBasePath, args.ProjectName, &initialState); err != nil {
+		return fmt.Errorf("failed to save initial project state for '%s': %w", args.ProjectName, err)
+	}
+	stateFilePath := filepath.Join(projectBasePath, config.ProjectStateFileName)
+	util.Log.Infof("Created initial project state file: %s", stateFilePath)
+
+	// --- Log effective domains ---
+	globalCfg, gerr := config.LoadGlobalConfig(reflowBasePath)
+	if gerr != nil {
+		var configFileNotFoundError viper.ConfigFileNotFoundError
+		if errors.As(gerr, &configFileNotFoundError) {
+			util.Log.Warnf("Global config file not found. Domain calculation might require manual config.")
+			globalCfg = &config.GlobalConfig{Debug: util.Log.GetLevel() == logrus.DebugLevel}
+		} else {
+			util.Log.Warnf("Could not load global config during project creation log: %v", gerr)
+		}
+	}
+
+	testEffDomain, errTest := config.GetEffectiveDomain(globalCfg, &projCfg, "test")
+	if errTest != nil {
+		util.Log.Warnf("Could not determine effective test domain: %v", errTest)
+	}
+	prodEffDomain, errProd := config.GetEffectiveDomain(globalCfg, &projCfg, "prod")
+	if errProd != nil {
+		util.Log.Warnf("Could not determine effective prod domain: %v", errProd)
+	}
+
+	util.Log.Info("-----------------------------------------------------")
+	util.Log.Infof("✅ Project '%s' created successfully!", args.ProjectName)
+	util.Log.Infof("   - Repo cloned to: %s", repoDestPath)
+	util.Log.Infof("   - Config file: %s", configFilePath)
+	if errTest == nil {
+		util.Log.Infof("   - Test Env Domain: %s", testEffDomain)
+	}
+	if errProd == nil {
+		util.Log.Infof("   - Prod Env Domain: %s", prodEffDomain)
+	}
+	util.Log.Info("-----------------------------------------------------")
+	util.Log.Info("Next step: Deploy the project using 'reflow deploy ", args.ProjectName, "' or via API.")
+
+	success = true
+	return nil
 }

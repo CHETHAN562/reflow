@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflow/internal/app"
 	"reflow/internal/config"
+	"reflow/internal/deployment"
 	"reflow/internal/docker"
 	"reflow/internal/nginx"
 	"reflow/internal/util"
@@ -15,6 +16,40 @@ import (
 
 // ApproveProd promotes a project from 'test' to 'prod' environment.
 func ApproveProd(ctx context.Context, reflowBasePath, projectName string) (err error) {
+	startTime := time.Now()
+	var approvedCommitHash string
+
+	initialEvent := &config.DeploymentEvent{
+		Timestamp:   startTime,
+		EventType:   "approve",
+		ProjectName: projectName,
+		Environment: "prod",
+		Outcome:     "started",
+		TriggeredBy: "cli/api",
+	}
+
+	defer func() {
+		duration := time.Since(startTime)
+		outcome := "success"
+		errMsg := ""
+		if err != nil {
+			outcome = "failure"
+			errMsg = err.Error()
+		}
+		finalEvent := &config.DeploymentEvent{
+			Timestamp:    time.Now(),
+			EventType:    "approve",
+			ProjectName:  projectName,
+			Environment:  "prod",
+			CommitSHA:    approvedCommitHash,
+			Outcome:      outcome,
+			ErrorMessage: errMsg,
+			DurationMs:   duration.Milliseconds(),
+			TriggeredBy:  "cli/api",
+		}
+		deployment.LogEvent(reflowBasePath, projectName, finalEvent)
+	}()
+
 	util.Log.Infof("Starting approval process for project '%s' to 'prod' environment...", projectName)
 	projectBasePath := config.GetProjectBasePath(reflowBasePath, projectName)
 	repoPath := filepath.Join(projectBasePath, config.RepoDirName)
@@ -22,7 +57,6 @@ func ApproveProd(ctx context.Context, reflowBasePath, projectName string) (err e
 	var projCfg *config.ProjectConfig
 	var projState *config.ProjectState
 	var globalCfg *config.GlobalConfig
-	var approvedCommitHash string
 	var imageTag string
 	var prodActiveSlot, prodInactiveSlot string
 	var newContainerID string
@@ -67,6 +101,9 @@ func ApproveProd(ctx context.Context, reflowBasePath, projectName string) (err e
 
 	approvedCommitHash = projState.Test.ActiveCommit
 	util.Log.Infof("Approving commit %s currently active in 'test' (slot: %s)", approvedCommitHash[:7], projState.Test.ActiveSlot)
+
+	initialEvent.CommitSHA = approvedCommitHash
+	deployment.LogEvent(reflowBasePath, projectName, initialEvent)
 
 	// --- 3. Identify Prod Slots ---
 	util.Log.Debug("Identifying prod deployment slots...")

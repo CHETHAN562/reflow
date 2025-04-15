@@ -65,7 +65,6 @@ with commits that are no longer active in either 'test' or 'prod' for this proje
 			var finalErr error
 			totalCleanedContainers := 0
 
-			// Cleanup containers per environment
 			for _, targetEnv := range targetEnvs {
 				cleanedCount, err := orchestrator.CleanupProjectEnv(ctx, reflowBasePath, projectName, targetEnv)
 				totalCleanedContainers += cleanedCount
@@ -79,7 +78,6 @@ with commits that are no longer active in either 'test' or 'prod' for this proje
 				}
 			}
 
-			// Prune images if requested (runs once for the project after container cleanup)
 			totalPrunedImages := 0
 			if pruneImages {
 				prunedCount, err := orchestrator.PruneProjectImages(ctx, reflowBasePath, projectName)

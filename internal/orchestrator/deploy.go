@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflow/internal/app"
 	"reflow/internal/config"
+	"reflow/internal/deployment"
 	"reflow/internal/docker"
 	internalGit "reflow/internal/git"
 	"reflow/internal/nginx"
@@ -22,6 +23,41 @@ const defaultCommit = "HEAD"
 
 // DeployTest orchestrates the deployment process to the 'test' environment.
 func DeployTest(ctx context.Context, reflowBasePath, projectName, commitIsh string) (err error) {
+	startTime := time.Now()
+	var finalCommitHash string
+
+	initialEvent := &config.DeploymentEvent{
+		Timestamp:   startTime,
+		EventType:   "deploy",
+		ProjectName: projectName,
+		Environment: "test",
+
+		Outcome:     "started",
+		TriggeredBy: "cli/api",
+	}
+
+	defer func() {
+		duration := time.Since(startTime)
+		outcome := "success"
+		errMsg := ""
+		if err != nil {
+			outcome = "failure"
+			errMsg = err.Error()
+		}
+		finalEvent := &config.DeploymentEvent{
+			Timestamp:    time.Now(),
+			EventType:    "deploy",
+			ProjectName:  projectName,
+			Environment:  "test",
+			CommitSHA:    finalCommitHash,
+			Outcome:      outcome,
+			ErrorMessage: errMsg,
+			DurationMs:   duration.Milliseconds(),
+			TriggeredBy:  "cli/api",
+		}
+		deployment.LogEvent(reflowBasePath, projectName, finalEvent)
+	}()
+
 	util.Log.Infof("Starting deployment for project '%s' to 'test' environment...", projectName)
 	projectBasePath := config.GetProjectBasePath(reflowBasePath, projectName)
 	repoPath := filepath.Join(projectBasePath, config.RepoDirName)
@@ -38,7 +74,7 @@ func DeployTest(ctx context.Context, reflowBasePath, projectName, commitIsh stri
 	var newContainerID string
 	var containerName string
 
-	defer func() {
+	func() {
 		if err != nil && newContainerID != "" {
 			util.Log.Errorf("Deployment failed: %v", err)
 			util.Log.Warnf("Attempting simple rollback: stopping and removing newly started container %s...", newContainerID[:12])
@@ -99,6 +135,9 @@ func DeployTest(ctx context.Context, reflowBasePath, projectName, commitIsh stri
 	}
 	commitHash = resolvedHash.String()
 	util.Log.Infof("Resolved '%s' to commit: %s", targetCommitIsh, commitHash)
+
+	initialEvent.CommitSHA = commitHash
+	deployment.LogEvent(reflowBasePath, projectName, initialEvent)
 
 	util.Log.Infof("Checking out commit %s...", commitHash[:7])
 	if err = internalGit.CheckoutCommit(repoPath, commitHash); err != nil {

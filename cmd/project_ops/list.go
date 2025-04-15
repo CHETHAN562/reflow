@@ -48,7 +48,7 @@ func AddListCommand(parentCmd *cobra.Command) {
 			}
 
 			util.Log.Info("Configured Projects:")
-			w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0) // minwidth, tabwidth, padding, padchar, flags
+			w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
 			fmt.Fprintln(w, "NAME\tREPOSITORY\tTEST STATUS\tPROD STATUS")
 			fmt.Fprintln(w, "----\t----------\t-----------\t-----------")
 			for _, s := range summaries {

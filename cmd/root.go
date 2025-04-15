@@ -6,8 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflow/cmd/deploy"
-	"reflow/cmd/destroy"
-	"reflow/cmd/version"
 	"reflow/internal/update"
 	"sync"
 	"time"
@@ -80,8 +78,8 @@ implementing a blue-green deployment strategy to minimize downtime.`,
 
 			if shouldStartCheck {
 				go func() {
-					repo := version.GetRepository()
-					currentVersion := version.GetVersion()
+					repo := GetRepository()
+					currentVersion := GetVersion()
 
 					if repo == "" || currentVersion == "dev" {
 						util.Log.Debug("Skipping update check (repo not set or dev version).")
@@ -134,8 +132,10 @@ func init() {
 
 	deploy.AddDeployCommand(rootCmd)
 	deploy.AddApproveCommand(rootCmd)
-	destroy.AddDestroyCommand(rootCmd)
-	version.AddVersionCommand(rootCmd)
+
+	AddDestroyCommand(rootCmd)
+	AddVersionCommand(rootCmd)
+	AddServerCommand(rootCmd)
 }
 
 // GetReflowBasePath allows other commands (like init) to access the calculated base path

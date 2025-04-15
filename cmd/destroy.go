@@ -1,4 +1,4 @@
-package destroy
+package cmd
 
 import (
 	"context"

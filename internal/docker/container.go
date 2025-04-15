@@ -53,6 +53,53 @@ func FindContainersByLabels(ctx context.Context, labels map[string]string) ([]ty
 	return containers, nil
 }
 
+// ListManagedContainers lists all containers managed by Reflow.
+func ListManagedContainers(ctx context.Context) ([]types.Container, error) {
+	cli, err := GetClient()
+	if err != nil {
+		return nil, err
+	}
+
+	filterArgs := filters.NewArgs()
+	filterArgs.Add("label", fmt.Sprintf("%s=true", LabelManaged))
+
+	util.Log.Debugf("Listing all containers managed by Reflow (label: %s=true)", LabelManaged)
+
+	containers, err := cli.ContainerList(ctx, container.ListOptions{
+		Filters: filterArgs,
+		All:     true,
+	})
+	if err != nil {
+		util.Log.Errorf("Failed to list managed containers: %v", err)
+		return nil, fmt.Errorf("failed to list managed containers: %w", err)
+	}
+
+	util.Log.Debugf("Found %d managed container(s).", len(containers))
+	return containers, nil
+}
+
+// InspectContainer gets detailed information about a single container.
+func InspectContainer(ctx context.Context, containerID string) (types.ContainerJSON, error) {
+	cli, err := GetClient()
+	if err != nil {
+		return types.ContainerJSON{}, err
+	}
+	util.Log.Debugf("Inspecting container %s...", containerID)
+
+	inspectData, err := cli.ContainerInspect(ctx, containerID)
+	if err != nil {
+		if IsErrNotFound(err) {
+			util.Log.Warnf("Container %s not found for inspect.", containerID)
+		} else {
+			util.Log.Errorf("Failed to inspect container %s: %v", containerID, err)
+		}
+		// Return the original error for handlers to check IsErrNotFound
+		return types.ContainerJSON{}, err
+	}
+
+	return inspectData, nil
+}
+
 // GetContainerStatusString provides a user-friendly status string.
 func GetContainerStatusString(c types.Container) string {
 	if c.ID == "" {
@@ -111,6 +158,37 @@ func StartContainer(ctx context.Context, containerID string) error {
 		return fmt.Errorf("failed to start container %s: %w", containerID[:12], err)
 	}
 	util.Log.Infof("Container %s started.", containerID[:12])
+	return nil
+}
+
+// RestartContainer restarts a container by ID.
+func RestartContainer(ctx context.Context, containerID string, timeout *time.Duration) error {
+	cli, err := GetClient()
+	if err != nil {
+		return err
+	}
+	util.Log.Infof("Restarting container %s...", containerID[:min(12, len(containerID))])
+
+	var restartOptions container.StopOptions
+	if timeout != nil {
+		seconds := int(timeout.Seconds())
+		restartOptions.Timeout = &seconds
+	} else {
+		defaultTimeoutSeconds := 10
+		restartOptions.Timeout = &defaultTimeoutSeconds
+	}
+
+	err = cli.ContainerRestart(ctx, containerID, restartOptions)
+	if err != nil {
+		if IsErrNotFound(err) {
+			util.Log.Errorf("Container %s not found, cannot restart.", containerID[:min(12, len(containerID))])
+			return fmt.Errorf("container %s not found", containerID[:min(12, len(containerID))])
+		}
+		util.Log.Errorf("Failed to restart container %s: %v", containerID[:min(12, len(containerID))], err)
+		return fmt.Errorf("failed to restart container %s: %w", containerID[:min(12, len(containerID))], err)
+	}
+
+	util.Log.Infof("Container %s restart initiated.", containerID[:min(12, len(containerID))])
 	return nil
 }
 

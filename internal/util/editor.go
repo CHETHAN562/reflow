@@ -19,7 +19,7 @@ func FindEditor() (string, error) {
 	if runtime.GOOS == "windows" {
 		candidates = []string{"notepad"}
 	} else {
-		candidates = []string{"vim", "nano", "vi"}
+		candidates = []string{"nano"}
 	}
 
 	Log.Debugf("$EDITOR not set, trying candidates: %v", candidates)
