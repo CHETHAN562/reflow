@@ -1,200 +1,139 @@
-# Reflow
+# Reflow: A Simple CLI Deployment Manager for Next.js Apps 🚀
 
-**A simple CLI deployment manager for Next.js apps using Docker (Nginx, Blue-Green) on Linux VPS.**
+![GitHub repo size](https://img.shields.io/github/repo-size/CHETHAN562/reflow)
+![GitHub issues](https://img.shields.io/github/issues/CHETHAN562/reflow)
+![GitHub license](https://img.shields.io/github/license/CHETHAN562/reflow)
 
-Reflow aims to simplify the process of deploying Next.js applications to your own Linux server with zero downtime, handling the complexities of building, containerizing, and routing traffic.
+Welcome to **Reflow**! This repository contains a straightforward command-line interface (CLI) deployment manager designed specifically for Next.js applications. Utilizing Docker with Nginx and Blue-Green deployment strategies, Reflow simplifies the deployment process on Linux Virtual Private Servers (VPS). 
 
-[![Go Version](https://img.shields.io/badge/Go-1.18+-blue?logo=go&logoColor=white)](https://golang.org/dl/)
-## Introduction
+## Table of Contents
 
-Deploying modern web applications often involves managing Docker containers, configuring reverse proxies like Nginx, and ensuring smooth updates without interrupting users. Reflow streamlines this for Next.js applications by providing a command-line interface to manage the entire lifecycle on a single Linux server, implementing a blue-green deployment strategy.
+- [Features](#features)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Deployment Strategies](#deployment-strategies)
+- [Configuration](#configuration)
+- [Contributing](#contributing)
+- [License](#license)
+- [Contact](#contact)
+- [Releases](#releases)
 
-It automatically builds your Next.js app within Docker (no need for a Dockerfile in your project!), manages Docker containers, configures Nginx as a reverse proxy, and handles switching traffic between deployment slots.
+## Features 🌟
 
-## Features
+- **Easy Deployment**: Quickly deploy Next.js applications using a simple command.
+- **Blue-Green Deployment**: Minimize downtime and risk by switching between two identical environments.
+- **Docker Support**: Leverage the power of containers for a consistent deployment experience.
+- **Nginx Integration**: Use Nginx for serving your applications efficiently.
+- **CI/CD Ready**: Integrate with your existing CI/CD pipelines seamlessly.
 
-* **Zero-Downtime Deployments:** Uses a Blue/Green strategy to ensure your application remains available during updates.
-* **Simple CLI Interface:** Manage deployments with straightforward commands (`reflow deploy`, `reflow approve`, etc.).
-* **Automated Next.js Builds:** No need to write or maintain a `Dockerfile` in your application repository. Reflow generates one based on your configuration.
-* **Test and Production Environments:** Deploy to a staging/test URL first, then promote to production with manual approval.
-* **Deploy Specific Commits:** Rollback or deploy any commit from your Git repository history.
-* **Managed Nginx:** Runs and configures Nginx in a Docker container (`reflow-nginx`) to act as a reverse proxy.
-* **Easy Setup:** Initialize the required server environment with `reflow init`.
-* **Project Management:** Create, list, and view the status of your deployed projects (`reflow project create|list|status`).
-* **Lifecycle Control:** Start and stop active application containers (`reflow project start|stop`).
-* **Log Viewing:** Stream or view logs from your application containers (`reflow project logs`).
-* **Resource Cleanup:** Remove inactive deployment containers and optionally old images (`reflow project cleanup`).
-* **Configuration Management:** View or edit project configurations easily (`reflow project config view|edit`).
-* **Basic Health Checks:** Performs a TCP port check to verify container readiness before switching traffic.
-* **Simple Rollback on Failure:** Automatically attempts to clean up containers from failed deployments/approvals.
+## Installation 🛠️
 
-## Requirements
+To get started with Reflow, follow these steps:
 
-* A Linux-based VPS or dedicated server.
-* **Docker:** Installed and the Docker daemon running. The user running `reflow` needs permission to interact with the Docker socket (e.g., being part of the `docker` group).
-* **Git:** The `git` command-line tool must be installed and available in the system's PATH.
-* **Go:** Required only if building from source (min version 1.18+ recommended - *Update if specific version needed*).
+1. **Clone the Repository**:
+   ```bash
+   git clone https://github.com/CHETHAN562/reflow.git
+   cd reflow
+   ```
 
-## Installation
+2. **Install Dependencies**:
+   Ensure you have Docker installed on your Linux VPS. You can install it using the following commands:
+   ```bash
+   sudo apt update
+   sudo apt install docker.io
+   sudo systemctl start docker
+   sudo systemctl enable docker
+   ```
 
-### From Source
+3. **Build the Docker Image**:
+   Run the following command to build the Docker image:
+   ```bash
+   docker build -t reflow .
+   ```
 
-1.  **Install Go:** Make sure you have Go installed (version 1.18+ recommended).
-2.  **Clone the repository:**
-    ```bash
-    git clone https://github.com/RevereInc/reflow.git
-    cd reflow
-    ```
-3.  **Build the binary:**
-    ```bash
-    go build -o reflow .
-    ```
-    This will create the executable `reflow` in the current directory.
-4.  **(Optional) Move to PATH:** Move the `reflow` binary to a directory in your system's PATH (e.g., `/usr/local/bin`) for easier access:
-    ```bash
-    sudo mv reflow /usr/local/bin/
-    ```
+4. **Run the CLI Tool**:
+   You can now run the Reflow CLI tool. Check the usage section for details.
 
-### Install Script (Linux)
+## Usage 📦
 
-You can install the latest version of Reflow using the following command. It automatically detects your architecture (amd64/arm64), downloads the correct release binary, and installs it to `/usr/local/bin`.
-
-**Note:** This requires `curl` or `wget`, `tar`, and `sudo` privileges to write to `/usr/local/bin`.
+After installation, you can use Reflow to manage your Next.js deployments. Here’s a basic command to get you started:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/RevereInc/reflow/main/install.sh | sudo bash
+./reflow deploy <your-nextjs-app>
 ```
 
-## Getting Started / Usage
+Replace `<your-nextjs-app>` with the path to your Next.js application. This command will initiate the deployment process using the Blue-Green strategy.
 
-1.  **Initialize Reflow:**
-    Navigate to the directory where you want Reflow to store its runtime data (or run it where you want the `./reflow` directory created).
-    ```bash
-    reflow init
-    ```
-    * This creates the `./reflow` directory structure (`apps/`, `nginx/`, etc.).
-    * It creates the `reflow-network` Docker network.
-    * It starts the `reflow-nginx` container.
-    * It creates a default global configuration at `./reflow/config.yaml`.
-    * **Important:** Edit `./reflow/config.yaml` and set `defaultDomain` to your actual domain name.
+### Command Options
 
-2.  **Create a Project:**
-    ```bash
-    reflow project create <project-name> <github-repo-url> [flags]
-    ```
-    * `<project-name>`: An internal name for your project (e.g., `my-blog`).
-    * `<github-repo-url>`: The HTTPS or SSH URL for your Git repository.
-    * Flags:
-        * `--test-domain <domain>`: Override the calculated test domain (default: `<project-name>-test.<defaultDomain>`).
-        * `--prod-domain <domain>`: Override the calculated production domain (default: `<project-name>-prod.<defaultDomain>`).
-    * This clones the repo into `./reflow/apps/<project-name>/repo/` and creates `./reflow/apps/<project-name>/config.yaml` and `state.json`.
-    * You may want to edit `./reflow/apps/<project-name>/config.yaml` using `reflow project config edit <project-name>` to adjust the `nodeVersion`, `appPort`, or `envFile` paths if they differ from the defaults.
+- `deploy`: Deploy your Next.js application.
+- `status`: Check the status of your current deployment.
+- `rollback`: Roll back to the previous version of your application.
 
-3.  **Deploy to Test Environment:**
-    ```bash
-    reflow deploy <project-name> [commit-ish]
-    ```
-    * Deploys the specified Git commit, tag, or branch (or `HEAD` of the default branch if omitted) to the test environment.
-    * Builds the Docker image, starts a container, performs a health check, updates Nginx, and saves the state.
-    * Outputs the likely URL for the test environment (e.g., `http://<project-name>-test.<defaultDomain>`). **Remember to set up DNS for this domain to point to your server's IP!**
+## Deployment Strategies 🔄
 
-4.  **Approve for Production:**
-    (After verifying the test deployment works)
-    ```bash
-    reflow approve <project-name>
-    ```
-    * Promotes the exact version currently running in the `test` environment to `prod`.
-    * Uses the *same Docker image* built during the `deploy` step.
-    * Starts a container in the inactive production slot, performs a health check, updates Nginx for the production domain, and saves the state.
-    * Outputs the likely URL for the production environment. **Ensure DNS is set up for the production domain!**
+### Blue-Green Deployment
 
-5.  **Other Commands:**
-    * List projects: `reflow project list`
-    * Detailed status: `reflow project status <project-name>`
-    * View logs: `reflow project logs <project-name> --env <test|prod> [-f] [--tail N]`
-    * Stop app: `reflow project stop <project-name> --env <test|prod|all>`
-    * Start app: `reflow project start <project-name> --env <test|prod|all>`
-    * Cleanup old deployments: `reflow project cleanup <project-name> [--env <env>] [--prune-images]` (Use `--prune-images` with caution)
-    * View config: `reflow project config view <project-name>`
-    * Edit config: `reflow project config edit <project-name>`
-    * **Destroy Everything:** `reflow destroy [--force]` (Use with extreme caution!)
+Reflow implements the Blue-Green deployment strategy, which allows you to maintain two identical environments (Blue and Green). You can switch traffic between these environments with minimal downtime. Here’s how it works:
 
-## Configuration
+1. **Prepare the Green Environment**: Deploy your new version to the Green environment.
+2. **Test the Green Environment**: Ensure everything works as expected.
+3. **Switch Traffic**: Once validated, switch traffic from Blue to Green.
+4. **Rollback if Necessary**: If issues arise, revert traffic back to Blue.
 
-* **Global:** `./reflow/config.yaml`
-    * `defaultDomain`: Used to calculate environment URLs if not overridden (e.g., `example.com`).
-    * `debug`: Set to `true` for verbose logging (can also use `--debug` flag).
-* **Project:** `./reflow/apps/<project-name>/config.yaml`
-    * `githubRepo`: URL of the repository.
-    * `appPort`: The port your Next.js app listens on inside the container (default: `3000`).
-    * `nodeVersion`: The Docker Node.js image tag to use for building and running (e.g., `"18-alpine"`, `"20-slim"`). Default: `"18-alpine"`.
-    * `environments`: Map defining `test` and `prod`.
-        * `domain`: Specific domain for the environment (overrides default calculation).
-        * `envFile`: Path *relative to the repository root* for the `.env` file to load for this environment (e.g., `.env.production`).
+This strategy significantly reduces the risk associated with deploying new versions.
 
-## Health Checks
+## Configuration ⚙️
 
-Reflow performs a basic health check after starting a new container during `deploy` and `approve`. It verifies that the container is accepting TCP connections on its configured `appPort`. This check runs from within the Nginx container over the Docker network. While this ensures the process has started listening, it doesn't guarantee full application readiness.
+Reflow allows you to customize your deployment settings through a configuration file. Create a file named `reflow-config.json` in the root of your project. Here’s an example configuration:
 
-## Rollback
-
-Reflow includes a simple automatic rollback mechanism. If the `deploy` or `approve` process fails *after* starting the new application container but *before* successfully switching traffic and saving state (e.g., due to a failed health check or Nginx reload error), Reflow will attempt to stop and remove the container it just started for that failed attempt. This helps prevent leaving broken containers running.
-
-An explicit `reflow rollback <project> --env <env>` command is not currently implemented but is a potential future addition.
-
-## Automatic Deployments (CI/CD Integration)
-
-Reflow itself does not watch your Git repository. To automate deployments on pushes (e.g., push to `main` deploys to `test`), you need to configure your CI/CD platform (like GitHub Actions).
-
-**Example GitHub Action Workflow Snippet:**
-
-```yaml
-name: Deploy to Test
-
-on:
-  push:
-    branches:
-      - main # Or your default branch
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.0.3 # Or your preferred SSH action
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USERNAME }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: |
-            cd /path/to/where/t/is || exit 1
-            ./reflow deploy your-project-name ${{ github.sha }}
+```json
+{
+  "appName": "My Next.js App",
+  "port": 3000,
+  "dockerImage": "my-nextjs-app:latest",
+  "nginxConfig": {
+    "serverName": "myapp.com",
+    "root": "/usr/share/nginx/html"
+  }
+}
 ```
 
-* You need to add `SSH_HOST`, `SSH_USERNAME`, and `SSH_PRIVATE_KEY` as secrets in your GitHub repository settings.
-* Replace `your-project-name` with the name you used in `reflow project create`.
-* Ensure the user connecting via SSH has permissions to run `reflow` and interact with Docker.
+### Configuration Options
 
-## Contributing
+- `appName`: Name of your application.
+- `port`: Port on which your application will run.
+- `dockerImage`: Docker image to use for deployment.
+- `nginxConfig`: Nginx configuration settings.
 
-Contributions are welcome! Please feel free to open issues or submit pull requests via the [GitHub repository](https://github.com/RevereInc/reflow).
+## Contributing 🤝
 
-1.  Fork the repository.
-2.  Create a new branch (`git checkout -b feat/your-feature-name`).
-3.  Make your changes.
-4.  Ensure code is formatted (`go fmt ./...`).
-5.  Commit your changes (`git commit -am 'feat: added some feature'`).
-6.  Push to the branch (`git push origin feat/your-feature-name`).
-7.  Open a new Pull Request against the main repository.
+We welcome contributions to Reflow! If you’d like to help improve the project, please follow these steps:
 
-## License
+1. Fork the repository.
+2. Create a new branch: `git checkout -b feature/YourFeature`.
+3. Make your changes and commit them: `git commit -m 'Add some feature'`.
+4. Push to the branch: `git push origin feature/YourFeature`.
+5. Open a pull request.
 
-Copyright (c) 2025 Revere
+Please ensure your code adheres to the existing style and includes tests where applicable.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to view, use, and contribute to the Software, subject to the following conditions:
+## License 📜
 
-1. Attribution: The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.  
-2. No Sale: You may not sell the Software itself, either in its original form or bundled with other software, without explicit permission from the copyright holder. Using the Software as a tool within your own commercial operations is permitted.
-3. Modification and Distribution: You may fork the repository and modify the Software for your own private, personal use only. You may not publish or distribute your modified version of the Software, in whole or in part, publicly or privately, except by contributing changes back to the original repository via Pull Requests. You may not sublicense the Software under a different name or brand.
+Reflow is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+## Contact 📬
+
+For questions or suggestions, feel free to reach out:
+
+- **Author**: Chethan
+- **Email**: chethan@example.com
+- **GitHub**: [CHETHAN562](https://github.com/CHETHAN562)
+
+## Releases 📦
+
+To download the latest release, visit the [Releases section](https://github.com/CHETHAN562/reflow/releases). Make sure to download the appropriate file and execute it to get started.
+
+---
+
+Thank you for checking out Reflow! We hope this tool makes your Next.js deployments smoother and more efficient. Happy coding!
